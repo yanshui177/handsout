@@ -2,31 +2,31 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleName</key>
-	<string>Handsout</string>
 	<key>CFBundleDisplayName</key>
 	<string>Handsout</string>
-	<key>CFBundleIdentifier</key>
-	<string>com.ryan.handsout</string>
 	<key>CFBundleExecutable</key>
 	<string>Handsout</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.ryan.handsout</string>
+	<key>CFBundleName</key>
+	<string>Handsout</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.0</string>
+	<string>1.1.0</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>1.1.0</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>LSUIElement</key>
 	<true/>
-	<key>NSHighResolutionCapable</key>
-	<true/>
-	<key>NSAppleEventsUsageDescription</key>
-	<string>Handsout 需要打开你添加的应用。</string>
 	<key>NSAccessibilityUsageDescription</key>
 	<string>Handsout 需要辅助功能权限来检测长按 Option 键，从而显示快捷键面板。</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Handsout 需要打开你添加的应用。</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
 </dict>
 </plist>

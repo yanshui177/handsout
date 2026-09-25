@@ -46,6 +46,10 @@ if [ -z "$TOKEN" ]; then
 fi
 
 echo "==> 构建 $VERSION"
+# 用发版号覆盖 Info.plist 里的版本，避免手改漏掉导致 app 里版本和 Release 不一致
+BARE_VERSION="${VERSION#v}"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $BARE_VERSION" Resources/Info.plist
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BARE_VERSION" Resources/Info.plist
 ./build.sh
 
 ASSET=""
