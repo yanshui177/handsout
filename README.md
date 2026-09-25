@@ -47,6 +47,17 @@ cp -r dist/Handsout.app /Applications    # 可选：装到应用程序目录
 ./dist/Handsout.app/Contents/MacOS/Handsout --hud        # 直接弹出快捷键面板
 ```
 
+### 发版（维护者）
+
+需要 GitHub Personal Access Token（`repo` 权限），存进钥匙串更保险：
+
+```bash
+./Scripts/release.sh set-token     # 首次：token 存进 macOS 钥匙串（不回显、不进命令行历史）
+./Scripts/release.sh v1.0.0        # 构建 -> 打包 -> 建 Release -> 上传 zip 附件
+```
+
+Release 说明写在 `docs/release-notes.md`，发版时会自动作为 Release body 上传。
+
 ## 使用
 
 1. **启动与授权**：首次运行会在菜单栏出现双手图标，并自动弹出设置窗口。到窗口底部点「请求权限」，在系统设置里勾选 Handsout（辅助功能）。**没有这个权限，长按 ⌥ 弹面板不生效**，`⌥+字母` 直接启动仍然可用。
