@@ -24,7 +24,7 @@
 
 ### 方式一：下载预编译版
 
-从 Releases 下载 `Handsout.app.zip`，解压后把 `Handsout.app` 拖到 `/Applications`，双击运行即可。
+从 Releases 下载 `Handsout-v1.0.0.dmg`，双击挂载，把 `Handsout.app` 拖到镜像里的 `Applications` 快捷方式上就装好了。
 
 > 未签名的 app 首次打开可能被 Gatekeeper 拦一下：右键 →「打开」，或在「系统设置 → 隐私与安全性」里点「仍要打开」。
 
@@ -53,8 +53,10 @@ cp -r dist/Handsout.app /Applications    # 可选：装到应用程序目录
 
 ```bash
 ./Scripts/release.sh set-token     # 首次：token 存进 macOS 钥匙串（不回显、不进命令行历史）
-./Scripts/release.sh v1.0.0        # 构建 -> 打包 -> 建 Release -> 上传 zip 附件
+./Scripts/release.sh v1.0.0        # 构建 -> 打 dmg -> 建 Release -> 上传附件
 ```
+
+默认打包成 **dmg**（`.app` 是目录，无法直接作为 Release 附件上传；dmg 里会附一个 `/Applications` 软链接，用户挂载后一拖即可安装）。需要 zip 的话：`./Scripts/release.sh v1.0.0 zip`。
 
 Release 说明写在 `docs/release-notes.md`，发版时会自动作为 Release body 上传。
 
