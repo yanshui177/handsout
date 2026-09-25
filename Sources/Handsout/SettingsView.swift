@@ -87,6 +87,7 @@ struct SettingsView: View {
     @State private var notice: String?
     @State private var trusted = Accessibility.isTrusted()
     @State private var showInstalled = false
+    @State private var showSystemActions = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -111,6 +112,7 @@ struct SettingsView: View {
         }
         .frame(width: 700, height: 520)
         .sheet(isPresented: $showInstalled) { InstalledAppsSheet() }
+        .sheet(isPresented: $showSystemActions) { SystemActionsSheet() }
     }
 
     // MARK: 顶部
@@ -124,9 +126,14 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
             Spacer()
             Button {
+                showSystemActions = true
+            } label: {
+                Label("添加系统功能", systemImage: "gearshape")
+            }
+            Button {
                 showInstalled = true
             } label: {
-                Label("从已安装应用添加", systemImage: "magnifyingglass")
+                Label("已安装应用", systemImage: "magnifyingglass")
             }
             Button {
                 pickApp()
@@ -146,7 +153,10 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
             Text("还没有添加任何应用")
                 .font(.system(size: 13))
-            Text("点击右上角「添加应用」，或直接从已安装列表里挑。")
+            Text("点击右上角「添加应用」或「添加系统功能」，也可以从已安装列表里挑。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            Text("系统功能包括：系统设置的各个面板（网络、蓝牙、声音…）、常用文件夹、系统自带应用。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
             Spacer()
@@ -271,16 +281,24 @@ private struct ItemRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            AppIconView(path: item.path, size: 32)
+            ItemIconView(item: item, size: 32)
                 .frame(width: 32, height: 32)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(item.name).font(.system(size: 13))
+                    if item.kind != .app {
+                        Text(item.kind.label)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.primary.opacity(0.08)))
+                    }
                     if !item.exists {
                         Text("路径失效").font(.system(size: 10)).foregroundStyle(.red)
                     }
                 }
-                Text(item.path)
+                Text(item.detail)
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -336,6 +354,112 @@ private struct ItemRow: View {
         updated.keyCode = keyCode
         updated.modifiers = modifiers
         store.update(updated)
+    }
+}
+
+// MARK: - 系统功能列表
+
+private struct SystemActionsSheet: View {
+    @EnvironmentObject var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+    @State private var added: String?
+
+    private var groups: [SystemGroup] { SystemCatalog.search(query) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("系统功能").font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Button("完成") { dismiss() }
+            }
+            .padding(12)
+
+            TextField("搜索，比如「网络」「蓝牙」「下载」", text: $query)
+                .textFieldStyle(.roundedBorder)
+                .padding(.horizontal, 12)
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(groups) { group in
+                        Section {
+                            ForEach(group.actions) { action in
+                                SystemActionRow(action: action, highlight: added == action.id) {
+                                    if store.add(action) != nil { added = action.id }
+                                }
+                            }
+                        } header: {
+                            HStack(spacing: 6) {
+                                Image(systemName: group.symbol)
+                                    .foregroundStyle(.secondary)
+                                Text(group.title)
+                            }
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 12)
+                            .padding(.top, 12)
+                            .padding(.bottom, 4)
+                        }
+                    }
+                }
+                .padding(.bottom, 12)
+            }
+
+            if let added, let action = SystemCatalog.action(id: added) {
+                Divider()
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    Text("已添加「\(action.name)」，快捷键 \(store.items.first { $0.path == action.target }?.hotkeyDisplay ?? "未分配")")
+                        .font(.system(size: 11))
+                    Spacer()
+                }
+                .padding(10)
+            }
+        }
+        .frame(width: 560, height: 600)
+    }
+}
+
+private struct SystemActionRow: View {
+    @EnvironmentObject var store: AppStore
+    let action: SystemAction
+    var highlight: Bool = false
+    var onAdd: () -> Void = {}
+
+    private var existing: LaunchItem? {
+        store.items.first { $0.kind == action.kind && $0.path == action.target }
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: action.symbol)
+                .font(.system(size: 15))
+                .foregroundStyle(.primary)
+                .frame(width: 24, height: 24)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(action.name).font(.system(size: 13))
+                Text(action.kind == .url
+                     ? "系统设置面板"
+                     : (action.target as NSString).abbreviatingWithTildeInPath)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if let item = existing {
+                Text(item.hotkeyDisplay)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            } else {
+                Button("添加", action: onAdd)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(highlight ? Color.accentColor.opacity(0.12) : Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture { if existing == nil { onAdd() } }
+        Divider().padding(.leading, 46)
     }
 }
 

@@ -2,23 +2,84 @@ import AppKit
 import Carbon.HIToolbox
 import Foundation
 
-/// 一个被快捷键绑定的应用
+/// 快捷键目标的类型
+enum ItemKind: String, Codable, CaseIterable {
+    /// 一个 .app
+    case app
+    /// 一个 URL scheme（比如系统设置面板）
+    case url
+    /// 一个文件夹（用访达打开）
+    case folder
+
+    var label: String {
+        switch self {
+        case .app: return "应用"
+        case .url: return "系统面板"
+        case .folder: return "文件夹"
+        }
+    }
+}
+
+/// 一个被快捷键绑定的目标（应用 / 系统面板 / 文件夹）
 struct LaunchItem: Identifiable, Codable, Equatable {
     var id: UUID = UUID()
     var name: String
+    /// .app / .folder -> 文件系统路径；.url -> 完整的 URL scheme
     var path: String
     var keyCode: UInt32 = 0
     var modifiers: UInt32 = 0
+    var kind: ItemKind = .app
+    /// SF Symbol 名；有值时用符号图标，否则用文件/应用图标
+    var symbol: String? = nil
 
     var isBound: Bool { keyCode != 0 && modifiers != 0 }
     var hotkeyDisplay: String { KeyCodes.display(keyCode: keyCode, modifiers: modifiers) }
-    var exists: Bool { FileManager.default.fileExists(atPath: path) }
 
-    var icon: NSImage {
-        if let cached = IconCache.shared.image(for: path) { return cached }
-        let img = NSWorkspace.shared.icon(forFile: path)
-        IconCache.shared.set(img, for: path)
-        return img
+    var exists: Bool {
+        switch kind {
+        case .app, .folder: return FileManager.default.fileExists(atPath: path)
+        case .url: return URL(string: path) != nil
+        }
+    }
+
+    /// 设置列表里第二行显示的说明
+    var detail: String {
+        switch kind {
+        case .url: return "\(kind.label) · \(path.replacingOccurrences(of: "x-apple.systempreferences:", with: ""))"
+        case .app, .folder: return path
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, path, keyCode, modifiers, kind, symbol
+    }
+
+    init(id: UUID = UUID(),
+         name: String,
+         path: String,
+         keyCode: UInt32 = 0,
+         modifiers: UInt32 = 0,
+         kind: ItemKind = .app,
+         symbol: String? = nil) {
+        self.id = id
+        self.name = name
+        self.path = path
+        self.keyCode = keyCode
+        self.modifiers = modifiers
+        self.kind = kind
+        self.symbol = symbol
+    }
+
+    /// 1.0.x 的配置里没有 kind / symbol，用默认值兜底，别把老配置读崩
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try c.decode(String.self, forKey: .name)
+        path = try c.decode(String.self, forKey: .path)
+        keyCode = try c.decodeIfPresent(UInt32.self, forKey: .keyCode) ?? 0
+        modifiers = try c.decodeIfPresent(UInt32.self, forKey: .modifiers) ?? 0
+        kind = try c.decodeIfPresent(ItemKind.self, forKey: .kind) ?? .app
+        symbol = try c.decodeIfPresent(String.self, forKey: .symbol)
     }
 }
 
@@ -118,6 +179,20 @@ final class AppStore: ObservableObject {
         return item
     }
 
+    /// 添加一个系统功能（系统设置面板 / 文件夹 / 系统应用）
+    @discardableResult
+    func add(_ action: SystemAction) -> LaunchItem? {
+        if items.contains(where: { $0.kind == action.kind && $0.path == action.target }) { return nil }
+        var item = action.makeItem()
+        if let hot = nextAvailableHotKey(preferring: action.hint ?? action.name) {
+            item.keyCode = hot.keyCode
+            item.modifiers = hot.modifiers
+        }
+        items.append(item)
+        save()
+        return item
+    }
+
     func remove(id: UUID) {
         items.removeAll { $0.id == id }
         save()
@@ -152,8 +227,72 @@ final class AppStore: ObservableObject {
 // MARK: - 启动 / 激活应用
 
 enum Launcher {
-    /// 智能开关键：第一次启动/激活；目标已在前台时再按一次 -> 隐藏它并切回上一个应用
+    /// 按类型分发：应用走"开关"逻辑，系统面板/文件夹走"打开并置前"
     static func toggle(_ item: LaunchItem) {
+        switch item.kind {
+        case .app: toggleApp(item)
+        case .url: openURLItem(item)
+        case .folder: toggleFolder(item)
+        }
+    }
+
+    /// 打开一个 URL scheme（主要是系统设置面板）。
+    /// 注意：目标应用已经在后台运行时，open() 只会切换面板、不会把它带到前台，
+    /// 所以这里补一次 activate（先来一次快的，冷启动再来一次兜底）。
+    private static func openURLItem(_ item: LaunchItem) {
+        guard let url = URL(string: item.path) else {
+            NSLog("[Handsout] 无效的 URL：\(item.path)")
+            return
+        }
+        let ok = NSWorkspace.shared.open(url)
+        NSLog("[Handsout] 打开 \(item.name)：\(item.path) -> \(ok)")
+
+        guard let bid = hostBundleID(forScheme: url.scheme) else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bid).first {
+                _ = activate(app)
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bid).first,
+                  !app.isActive else { return }
+            NSLog("[Handsout] \(item.name) 冷启动后仍未到前台，补一次 activate")
+            _ = activate(app)
+        }
+    }
+
+    /// 已知 scheme 对应的宿主 App；未知返回 nil（比如 https 交给默认浏览器）
+    private static func hostBundleID(forScheme scheme: String?) -> String? {
+        switch scheme {
+        case "x-apple.systempreferences": return "com.apple.systempreferences"
+        default: return nil
+        }
+    }
+
+    /// 用访达打开一个文件夹；访达已在前台时按"再按一次收起"处理
+    private static func toggleFolder(_ item: LaunchItem) {
+        guard item.exists else {
+            DispatchQueue.main.async { Launcher.warnMissing(item) }
+            return
+        }
+        let fid = "com.apple.finder"
+        let isFront = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == fid
+        let finder = NSRunningApplication.runningApplications(withBundleIdentifier: fid).first
+        if AppStore.shared.toggleBack, isFront, let finder,
+           WindowProbe.hasWindow(pid: finder.processIdentifier) {
+            NSLog("[Handsout] 访达已在前台，收起并切回上一个应用")
+            finder.hide()
+            if let previous = AppTracker.shared.appToReturnTo(excluding: fid) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { activate(previous) }
+            }
+            return
+        }
+        NSLog("[Handsout] 用访达打开 \(item.path)")
+        NSWorkspace.shared.open(URL(fileURLWithPath: item.path))
+    }
+
+    /// 智能开关键：第一次启动/激活；目标已在前台时再按一次 -> 隐藏它并切回上一个应用
+    private static func toggleApp(_ item: LaunchItem) {
         guard item.exists else {
             DispatchQueue.main.async { Launcher.warnMissing(item) }
             return
@@ -234,13 +373,17 @@ enum Launcher {
         }
     }
 
-    /// 直接启动（设置界面里的播放按钮用，不做隐藏切换）
+    /// 直接打开（设置界面里的播放按钮用，不做隐藏切换）
     static func launch(_ item: LaunchItem) {
         guard item.exists else {
             DispatchQueue.main.async { Launcher.warnMissing(item) }
             return
         }
-        openApplication(url: URL(fileURLWithPath: item.path), name: item.name)
+        switch item.kind {
+        case .app: openApplication(url: URL(fileURLWithPath: item.path), name: item.name)
+        case .url: openURLItem(item)
+        case .folder: NSWorkspace.shared.open(URL(fileURLWithPath: item.path))
+        }
     }
 
     private static func openApplication(url: URL, name: String) {
@@ -253,8 +396,8 @@ enum Launcher {
 
     private static func warnMissing(_ item: LaunchItem) {
         let alert = NSAlert()
-        alert.messageText = "找不到应用"
-        alert.informativeText = "\(item.name) 已不在原路径：\n\(item.path)"
+        alert.messageText = item.kind == .app ? "找不到应用" : "找不到\(item.kind.label)"
+        alert.informativeText = "\(item.name) 已不在原位置：\n\(item.path)"
         alert.addButton(withTitle: "好")
         alert.runModal()
     }

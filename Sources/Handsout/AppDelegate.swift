@@ -37,6 +37,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openSettings()
         } else if args.contains("--hud") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { HUDController.shared.show() }
+        } else if let i = args.firstIndex(of: "--probe-pane"), args.count > i + 1 {
+            // 开发用：验证系统设置面板 ID 是否仍然有效，跑完自动退出
+            SystemPaneProbe.run(args[i + 1].split(separator: ",").map(String.init))
+        } else if args.contains("--dump-panes") {
+            SystemPaneProbe.dumpPanes()
+        } else if let i = args.firstIndex(of: "--run-item"), args.count > i + 1 {
+            // 开发用：按顺序触发若干条目（逗号分隔的名字），打印每次触发后的前台应用
+            runItems(args[i + 1].split(separator: ",").map(String.init))
         } else if !Accessibility.isTrusted() {
             // 首次运行引导授权，否则长按 ⌥ 收不到全局事件
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.openSettings() }
@@ -57,6 +65,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let item = AppStore.shared.items.first(where: { $0.id == itemID }) else { return }
         OptionMonitor.shared.markConsumed() // 热键已生效，本次按住 ⌥ 不再弹面板
         Launcher.toggle(item)
+    }
+
+    /// 开发用：绕过热键直接触发条目，验证 Launcher 的分发逻辑
+    private func runItems(_ names: [String]) {
+        var index = 0
+        func step() {
+            guard index < names.count else {
+                print("RUN DONE")
+                fflush(stdout)
+                exit(0)
+            }
+            let name = names[index]
+            index += 1
+            guard let item = AppStore.shared.items.first(where: { $0.name == name }) else {
+                print("RUN \(name) | 未找到该条目")
+                fflush(stdout)
+                step()
+                return
+            }
+            Launcher.toggle(item)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                print("RUN \(name) | \(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "?")")
+                fflush(stdout)
+                step()
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { step() }
     }
 
     func openSettings() {

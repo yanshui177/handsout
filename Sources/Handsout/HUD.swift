@@ -110,7 +110,7 @@ private struct HUDCell: View {
     var body: some View {
         VStack(spacing: 5) {
             ZStack(alignment: .topTrailing) {
-                AppIconView(path: item.path, size: 52)
+                ItemIconView(item: item, size: 52, color: .white)
                     .shadow(radius: 2)
                 if item.isBound {
                     Text(KeyCodes.hudBadge(keyCode: item.keyCode, modifiers: item.modifiers))
